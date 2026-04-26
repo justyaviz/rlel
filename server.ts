@@ -64,6 +64,14 @@ async function startServer() {
       
       console.log(`[LOGIN] Success for: ${cleanUsername}`);
 
+      // Only return necessary user data to avoid circular reference errors in JSON.stringify
+      const userData = {
+        pk: auth.pk,
+        username: auth.username,
+        full_name: auth.full_name,
+        profile_pic_url: auth.profile_pic_url
+      };
+
       // 4. Perform post-login simulation in background
       process.nextTick(async () => {
         try {
@@ -73,28 +81,30 @@ async function startServer() {
         }
       });
 
-      res.json({ success: true, user: auth });
+      res.json({ success: true, user: userData });
     } catch (error: any) {
       console.error('[LOGIN] Error:', error.name, error.message);
       
       let friendlyMessage = 'Login muvaffaqiyatsiz tugadi.';
+      const rawMessage = error.message || 'No raw message';
       
       if (error.name === 'IgLoginInvalidUserError') {
-        friendlyMessage = `Instagram "${username}" akkauntini topa olmadi. Iltimos, usernameni to'g'ri kiritganingizni tekshiring.`;
+        friendlyMessage = `Instagram "${username}" akkauntini topa olmadi (400 Bad Request).`;
       } else if (error.name === 'IgLoginTwoFactorRequiredError') {
-        friendlyMessage = 'Ikki bosqichli autentifikatsiya (2FA) yoqilgan. Bot hozircha buni qo\'llab-quvvatlaydi.';
+        friendlyMessage = 'Ikki bosqichli autentifikatsiya (2FA) yoqilgan.';
       } else if (error.name === 'IgCheckpointError' || error.message?.includes('checkpoint')) {
-        friendlyMessage = 'Instagram xavfsizlik tekshiruvi (checkpoint) so\'ramoqda. Telefoningizga kiring va "Bu men edim" ni bosing.';
+        friendlyMessage = 'Xavfsizlik tekshiruvi (Checkpoint). Telefoningizdan tasdiqlang.';
       } else if (error.name === 'IgLoginBadPasswordError') {
         friendlyMessage = 'Parol noto\'g\'ri.';
       } else if (error.message?.includes('spam') || error.message?.includes('feedback_required')) {
-        friendlyMessage = 'Instagram vaqtincha botlarni bloklamoqda (Spam block). Bir ozdan so\'ng urinib ko\'ring.';
+        friendlyMessage = 'Instagram vaqtincha botlarni bloklamoqda (Spam/Feedback block).';
       }
 
       res.status(400).json({ 
         success: false, 
         message: friendlyMessage,
-        details: error.message
+        details: rawMessage,
+        errorType: error.name
       });
     }
   });

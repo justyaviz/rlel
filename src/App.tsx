@@ -200,9 +200,15 @@ export default function App() {
               </form>
 
               {error && (
-                <div className="mt-6 flex items-start gap-2 rounded-lg border border-red-500/20 bg-red-500/10 p-4 text-xs text-red-400">
-                  <AlertCircle className="h-4 w-4 shrink-0" />
-                  <span>{error}</span>
+                <div className="mt-6 space-y-2">
+                  <div className="flex items-start gap-2 rounded-lg border border-red-500/20 bg-red-500/10 p-4 text-xs text-red-400">
+                    <AlertCircle className="h-4 w-4 shrink-0" />
+                    <span>{error}</span>
+                  </div>
+                  {/* Technical Details */}
+                  <div className="rounded border border-slate-800 bg-black/50 p-2 text-[9px] font-mono text-slate-600 break-all">
+                    LOG: {error}
+                  </div>
                 </div>
               )}
 
