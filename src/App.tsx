@@ -50,15 +50,23 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
       });
-      const data = await res.json();
+      
+      let data;
+      try {
+        data = await res.json();
+      } catch (e) {
+        throw new Error('Serverdan noto\'g\'ri javob keldi (Parsing error).');
+      }
+
       if (data.success) {
         setUser(data.user);
         setState('dashboard');
       } else {
-        setError(data.message || 'Login failed. Check your credentials.');
+        setError(data.message || 'Login muvaffaqiyatsiz. Qaytadan urinib ko\'ring.');
       }
-    } catch (err) {
-      setError('Connection error. Please try again.');
+    } catch (err: any) {
+      console.error('Fetch error:', err);
+      setError(err.message || 'Server bilan aloqa uzildi. Iltimos, birozdan so\'ng urinib ko\'ring.');
     } finally {
       setLoading(false);
     }

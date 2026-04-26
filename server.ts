@@ -18,11 +18,16 @@ async function startServer() {
     cookie: { secure: false } // Set to true in prod with HTTPS
   }));
 
-  // Store active clients in memory for performance during long analysis
-  // In a real production app, we'd persist the session state (cookies) to a DB
+  // Diagnostic Health Check
+  app.get('/api/health', (req, res) => {
+    res.json({ status: 'ok', uptime: process.uptime() });
+  });
+
+  // Store active clients in memory
   const clients: Record<string, IgApiClient> = {};
 
   const getClient = (sessionId: string) => {
+    if (!sessionId) return new IgApiClient();
     if (!clients[sessionId]) {
       clients[sessionId] = new IgApiClient();
     }
@@ -32,59 +37,64 @@ async function startServer() {
   // API Routes
   app.post('/api/login', async (req, res) => {
     const { username, password } = req.body;
-    const ig = getClient(req.sessionID);
+    
+    if (!username || !password) {
+      return res.status(400).json({ success: false, message: 'Username va parolni kiriting' });
+    }
+
+    const sessionId = req.sessionID || 'default';
+    const ig = getClient(sessionId);
 
     try {
       // 0. Basic username scrubbing
       const cleanUsername = username.trim().toLowerCase().replace(/^@/, '');
       
-      console.log(`Attempting login for: ${cleanUsername}`);
+      console.log(`[LOGIN] Attempting for: ${cleanUsername} (Session: ${sessionId})`);
 
       // 1. Generate a consistent device for this username
       ig.state.generateDevice(cleanUsername);
       
-      // 2. Perform pre-login simulation with multiple steps
-      // This makes the request look more like a real app
+      // 2. Perform pre-login simulation
       await ig.simulate.preLoginFlow();
       
-      // Small delay to simulate human typing/delay
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      await new Promise(resolve => setTimeout(resolve, 1000));
 
       // 3. Attempt Login
       const auth = await ig.account.login(cleanUsername, password);
       
+      console.log(`[LOGIN] Success for: ${cleanUsername}`);
+
       // 4. Perform post-login simulation in background
       process.nextTick(async () => {
         try {
           await ig.simulate.postLoginFlow();
         } catch (e) {
-          console.warn('Post-login simulation failed (non-critical):', e);
+          console.warn('[LOGIN] Post-login simulation non-critical failure');
         }
       });
 
       res.json({ success: true, user: auth });
     } catch (error: any) {
-      console.error('Login error detail:', error);
+      console.error('[LOGIN] Error:', error.name, error.message);
       
-      let friendlyMessage = 'Login failed. Please check your credentials.';
+      let friendlyMessage = 'Login muvaffaqiyatsiz tugadi.';
       
-      // Handle the specific "account not found" error which is often a bot block
       if (error.name === 'IgLoginInvalidUserError') {
-        friendlyMessage = `Instagram sizning "${username}" akkauntingizni topa olmadi. Iltimos, usernameni to'g'ri kiritganingizni tekshiring (belgilarsiz). Agar username to'g'ri bo'lsa, Instagram vaqtincha botlarni bloklayotgan bo'lishi mumkin.`;
+        friendlyMessage = `Instagram "${username}" akkauntini topa olmadi. Iltimos, usernameni to'g'ri kiritganingizni tekshiring.`;
       } else if (error.name === 'IgLoginTwoFactorRequiredError') {
-        friendlyMessage = 'Ikki bosqichli autentifikatsiya (2FA) yoqilgan. Bu bot hozircha faqat standart loginni qo\'llab-quvvatlaydi.';
+        friendlyMessage = 'Ikki bosqichli autentifikatsiya (2FA) yoqilgan. Bot hozircha buni qo\'llab-quvvatlaydi.';
       } else if (error.name === 'IgCheckpointError' || error.message?.includes('checkpoint')) {
-        friendlyMessage = 'Instagram xavfsizlik tekshiruvi so\'ramoqda. Iltimos, telefoningizda Instagramga kiring va "Bu men edim" (It was me) tugmasini bosing, so\'ng qaytadan urinib ko\'ring.';
+        friendlyMessage = 'Instagram xavfsizlik tekshiruvi (checkpoint) so\'ramoqda. Telefoningizga kiring va "Bu men edim" ni bosing.';
       } else if (error.name === 'IgLoginBadPasswordError') {
-        friendlyMessage = 'Parol noto\'g\'ri. Iltimos, tekshirib qaytadan kiring.';
-      } else if (error.message?.includes('spam')) {
-        friendlyMessage = 'Instagram sizning so\'rovingizni spam deb baholadi. Bir oz kuting va qaytadan urinib ko\'ring.';
+        friendlyMessage = 'Parol noto\'g\'ri.';
+      } else if (error.message?.includes('spam') || error.message?.includes('feedback_required')) {
+        friendlyMessage = 'Instagram vaqtincha botlarni bloklamoqda (Spam block). Bir ozdan so\'ng urinib ko\'ring.';
       }
 
       res.status(400).json({ 
         success: false, 
         message: friendlyMessage,
-        errorType: error.name
+        details: error.message
       });
     }
   });
