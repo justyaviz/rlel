@@ -9,6 +9,7 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
+  app.set('trust proxy', 1);
   app.use(cors());
   app.use(express.json());
   app.use(session({
@@ -17,11 +18,6 @@ async function startServer() {
     saveUninitialized: true,
     cookie: { secure: false } // Set to true in prod with HTTPS
   }));
-
-  // Diagnostic Health Check
-  app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', uptime: process.uptime() });
-  });
 
   // Store active clients in memory
   const clients: Record<string, IgApiClient> = {};
@@ -34,8 +30,20 @@ async function startServer() {
     return clients[sessionId];
   };
 
-  // API Routes
-  app.post('/api/login', async (req, res) => {
+  const apiRouter = express.Router();
+
+  apiRouter.use((req, res, next) => {
+    const sessId = req.sessionID || 'unknown';
+    console.log(`[API] ${req.method} ${req.url} (SESS: ${sessId})`);
+    next();
+  });
+
+  // Diagnostic Health Check
+  apiRouter.get('/health', (req, res) => {
+    res.json({ status: 'ok', uptime: process.uptime() });
+  });
+
+  apiRouter.post('/login', async (req, res) => {
     const { username, password } = req.body;
     
     if (!username || !password) {
@@ -46,25 +54,24 @@ async function startServer() {
     const ig = getClient(sessionId);
 
     try {
-      // 0. Basic username scrubbing
       const cleanUsername = username.trim().toLowerCase().replace(/^@/, '');
-      
-      console.log(`[LOGIN] Attempting for: ${cleanUsername} (Session: ${sessionId})`);
+      console.log(`[LOGIN] Starting: ${cleanUsername}`);
 
-      // 1. Generate a consistent device for this username
+      // 1. More "trusted" iPhone Device profile
       ig.state.generateDevice(cleanUsername);
       
-      // 2. Perform pre-login simulation
-      await ig.simulate.preLoginFlow();
-      
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // 2. Realistic Simulation Flow with delays
+      try {
+        await ig.simulate.preLoginFlow();
+        await new Promise(resolve => setTimeout(resolve, 3000)); // Organic human-like pause
+      } catch (e) {
+        console.warn('[LOGIN] Pre-flow warning');
+      }
 
-      // 3. Attempt Login
+      // 3. Final Prep
       const auth = await ig.account.login(cleanUsername, password);
-      
-      console.log(`[LOGIN] Success for: ${cleanUsername}`);
+      console.log(`[LOGIN] Success: ${cleanUsername}`);
 
-      // Only return necessary user data to avoid circular reference errors in JSON.stringify
       const userData = {
         pk: auth.pk,
         username: auth.username,
@@ -72,104 +79,115 @@ async function startServer() {
         profile_pic_url: auth.profile_pic_url
       };
 
-      // 4. Perform post-login simulation in background
       process.nextTick(async () => {
-        try {
-          await ig.simulate.postLoginFlow();
-        } catch (e) {
-          console.warn('[LOGIN] Post-login simulation non-critical failure');
-        }
+        try { await ig.simulate.postLoginFlow(); } catch (e) {}
       });
 
       res.json({ success: true, user: userData });
     } catch (error: any) {
-      console.error('[LOGIN] Error:', error.name, error.message);
+      // Clear client on failure to ensure a fresh state for next attempt
+      delete clients[sessionId];
       
-      let friendlyMessage = 'Login muvaffaqiyatsiz tugadi.';
-      const rawMessage = error.message || 'No raw message';
+      const msg = (error.message || '').toLowerCase();
+      const errName = error.name || 'UnknownError';
+      console.error(`[LOGIN ERROR] Name: ${errName}, Msg: ${msg}`);
       
-      if (error.name === 'IgLoginInvalidUserError') {
-        friendlyMessage = `Instagram "${username}" akkauntini topa olmadi (400 Bad Request).`;
-      } else if (error.name === 'IgLoginTwoFactorRequiredError') {
-        friendlyMessage = 'Ikki bosqichli autentifikatsiya (2FA) yoqilgan.';
-      } else if (error.name === 'IgCheckpointError' || error.message?.includes('checkpoint')) {
-        friendlyMessage = 'Xavfsizlik tekshiruvi (Checkpoint). Telefoningizdan tasdiqlang.';
-      } else if (error.name === 'IgLoginBadPasswordError') {
+      let friendlyMessage = 'Login muvaffaqiyatsiz.';
+
+      // Check for challenge/checkpoint FIRST (most specific and common)
+      if (msg.includes('challenge') || msg.includes('checkpoint') || errName === 'IgCheckpointError') {
+        friendlyMessage = 'Xavfsizlik tekshiruvi (Verification required). Iltimos, telefoningizda Instagramga kiring va "BU MEN EDIM" tugmasini bosing.';
+      } 
+      // Check for bad password SECOND
+      else if (errName === 'IgLoginBadPasswordError' || msg.includes('password')) {
         friendlyMessage = 'Parol noto\'g\'ri.';
-      } else if (error.message?.includes('spam') || error.message?.includes('feedback_required')) {
-        friendlyMessage = 'Instagram vaqtincha botlarni bloklamoqda (Spam/Feedback block).';
+      }
+      // Check for invalid user THIRD (excluding cases that look like challenges)
+      else if (errName === 'IgLoginInvalidUserError' || msg.includes('invalid_user')) {
+        friendlyMessage = `Instagram "@${username}" akkauntini topa olmadi. Username to'g'riligini tekshiring.`;
+      }
+      // Check for spam FOURTH
+      else if (msg.includes('spam') || msg.includes('feedback') || msg.includes('400')) {
+        friendlyMessage = 'Instagram vaqtincha botlarni bloklamoqda (Spam/Block). Bir ozdan so\'ng urinib ko\'ring.';
       }
 
       res.status(400).json({ 
         success: false, 
         message: friendlyMessage,
-        details: rawMessage,
+        details: error.message,
         errorType: error.name
       });
     }
   });
 
-  app.post('/api/analyze', async (req, res) => {
-    const { count = 100 } = req.body;
+  apiRouter.post('/analyze', async (req, res) => {
+    const { count = 50 } = req.body;
     const ig = clients[req.sessionID];
 
-    if (!ig) {
-      return res.status(401).json({ success: false, message: 'Not logged in' });
-    }
+    if (!ig) return res.status(401).json({ success: false, message: 'Seans muddati tugagan' });
 
     try {
       const pk = ig.state.cookieUserId;
-      
-      // Fetch followings
       const followingFeed = ig.feed.accountFollowing(pk);
       const followings = await followingFeed.items();
       
-      // Fetch followers
       const followersFeed = ig.feed.accountFollowers(pk);
       const followers = await followersFeed.items();
 
       const followerIds = new Set(followers.map(f => f.pk));
-      
-      // Filter for those who don't follow back
       const nonFollowBack = followings
         .filter(f => !followerIds.has(f.pk))
         .slice(0, count);
 
       res.json({ success: true, profiles: nonFollowBack });
     } catch (error: any) {
-      console.error('Analysis error:', error);
       res.status(500).json({ success: false, message: error.message });
     }
   });
 
-  app.post('/api/unfollow', async (req, res) => {
+  apiRouter.post('/unfollow', async (req, res) => {
     const { userIds } = req.body;
     const ig = clients[req.sessionID];
 
-    if (!ig) {
-      return res.status(401).json({ success: false, message: 'Not logged in' });
-    }
+    if (!ig) return res.status(401).json({ success: false, message: 'Seans muddati tugagan' });
 
     try {
       const results = [];
       for (const pk of userIds) {
         await ig.friendship.destroy(pk);
         results.push({ pk, success: true });
-        // Add a small delay to avoid rate limiting
-        await new Promise(resolve => setTimeout(resolve, 1500));
+        await new Promise(resolve => setTimeout(resolve, 2000));
       }
-
       res.json({ success: true, results });
     } catch (error: any) {
-      console.error('Unfollow error:', error);
       res.status(500).json({ success: false, message: error.message });
     }
   });
 
-  app.post('/api/logout', (req, res) => {
+  apiRouter.post('/logout', (req, res) => {
     delete clients[req.sessionID];
-    req.session.destroy(() => {
-      res.json({ success: true });
+    req.session.destroy(() => res.json({ success: true }));
+  });
+
+  // API Catch-all 404
+  apiRouter.use((req, res) => {
+    console.warn(`[API 404] ${req.method} ${req.url}`);
+    res.status(404).json({ 
+      success: false, 
+      message: `API yo'nalishi topilmadi: ${req.method} ${req.originalUrl}`,
+      details: 'Check server logs for path matching issues.'
+    });
+  });
+
+  app.use('/api', apiRouter);
+
+  // Global Error Handler
+  app.use((err: any, req: any, res: any, next: any) => {
+    console.error('[SERVER ERROR]', err);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Serverda ichki xatolik yuz berdi.',
+      details: err.message 
     });
   });
 

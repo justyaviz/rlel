@@ -51,11 +51,15 @@ export default function App() {
         body: JSON.stringify({ username, password }),
       });
       
+      const text = await res.text();
       let data;
       try {
-        data = await res.json();
+        data = JSON.parse(text);
       } catch (e) {
-        throw new Error('Serverdan noto\'g\'ri javob keldi (Parsing error).');
+        console.error('Fetch Parse error:', text);
+        const statusText = `Status: ${res.status} ${res.statusText}`;
+        const preview = text.substring(0, 100).replace(/<[^>]*>?/gm, '');
+        throw new Error(`${statusText}. Server xabari: ${preview || 'Bo\'sh javob'}`);
       }
 
       if (data.success) {
@@ -199,15 +203,33 @@ export default function App() {
                 </button>
               </form>
 
+              <div className="mt-4 flex justify-center">
+                <button
+                  onClick={async () => {
+                    try {
+                      const res = await fetch('/api/health');
+                      const data = await res.json();
+                      alert(`Server Holati: ${data.status === 'ok' ? 'YAXSHI (OK)' : 'NOSOZ'}\nUptime: ${Math.round(data.uptime)}s`);
+                    } catch (e) {
+                      alert('Server bilan bog\'lanib bo\'lmadi! (Network Error)');
+                    }
+                  }}
+                  className="text-[10px] text-slate-600 hover:text-slate-400 uppercase tracking-widest font-bold transition-colors"
+                >
+                  Server holatini tekshirish
+                </button>
+              </div>
+
               {error && (
                 <div className="mt-6 space-y-2">
                   <div className="flex items-start gap-2 rounded-lg border border-red-500/20 bg-red-500/10 p-4 text-xs text-red-400">
                     <AlertCircle className="h-4 w-4 shrink-0" />
-                    <span>{error}</span>
+                    <span className="break-words">{error}</span>
                   </div>
                   {/* Technical Details */}
-                  <div className="rounded border border-slate-800 bg-black/50 p-2 text-[9px] font-mono text-slate-600 break-all">
-                    LOG: {error}
+                  <div className="rounded border border-slate-800 bg-black/50 p-2 text-[9px] font-mono text-slate-500 overflow-x-auto">
+                    <div className="font-bold text-slate-400 mb-1">TECHNICAL LOG:</div>
+                    {error.includes('doctype') || error.includes('html') ? 'Server returned HTML (Crash/Block)' : error}
                   </div>
                 </div>
               )}
