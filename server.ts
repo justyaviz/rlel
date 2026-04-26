@@ -66,11 +66,15 @@ async function startServer() {
 
     const sessionId = req.sessionID || 'default';
     const ig = getClient(sessionId);
+    const META_APP_ID = '1455621515814473';
 
     try {
       const cleanUsername = username.trim().toLowerCase().replace(/^@/, '');
-      console.log(`[LOGIN] Starting: ${cleanUsername}`);
+      console.log(`[LOGIN] Starting: ${cleanUsername} with AppID: ${META_APP_ID}`);
 
+      // Set the app id in the state
+      ig.state.appId = META_APP_ID;
+      
       // 1. More "trusted" iPhone Device profile
       ig.state.generateDevice(cleanUsername);
       
