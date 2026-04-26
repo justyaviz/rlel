@@ -1,0 +1,6 @@
+{
+  "name": "InstaClean - Follower Manager",
+  "description": "Instagram follow-back analyzer and cleanup tool. Identify and unfollow profiles that don't follow you back.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
