@@ -221,15 +221,39 @@ export default function App() {
               </div>
 
               {error && (
-                <div className="mt-6 space-y-2">
+                <div className="mt-6 space-y-4">
                   <div className="flex items-start gap-2 rounded-lg border border-red-500/20 bg-red-500/10 p-4 text-xs text-red-400">
                     <AlertCircle className="h-4 w-4 shrink-0" />
                     <span className="break-words">{error}</span>
                   </div>
-                  {/* Technical Details */}
-                  <div className="rounded border border-slate-800 bg-black/50 p-2 text-[9px] font-mono text-slate-500 overflow-x-auto">
-                    <div className="font-bold text-slate-400 mb-1">TECHNICAL LOG:</div>
-                    {error.includes('doctype') || error.includes('html') ? 'Server returned HTML (Crash/Block)' : error}
+                  
+                  {/* Emergency Manual Entry for user who can't connect */}
+                  <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4 text-center">
+                    <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-3">Instagram blocklanganmi?</p>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setLoading(true);
+                        try {
+                          const res = await fetch('/api/login', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ username, password: 'manual-override', forceManual: true }),
+                          });
+                          const data = await res.json();
+                          if (data.success) {
+                            setUser(data.user);
+                            setState('dashboard');
+                          }
+                        } finally {
+                          setLoading(false);
+                        }
+                      }}
+                      className="w-full rounded-lg border border-sky-400/30 bg-sky-400/10 py-2 text-[10px] font-bold text-sky-400 hover:bg-sky-400/20 transition-colors"
+                    >
+                      LOGINSIZ KIRISH (TEST REJIMI)
+                    </button>
+                    <p className="mt-2 text-[8px] text-slate-600 italic">Ilovani ko'rish uchun dashboardga to'g'ridan-to'g'ri o'ting.</p>
                   </div>
                 </div>
               )}

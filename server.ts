@@ -44,10 +44,24 @@ async function startServer() {
   });
 
   apiRouter.post('/login', async (req, res) => {
-    const { username, password } = req.body;
+    const { username, password, forceManual } = req.body;
     
     if (!username || !password) {
       return res.status(400).json({ success: false, message: 'Username va parolni kiriting' });
+    }
+
+    // [TEST MODE] Allow users to bypass standard Instagram logic for demo
+    if (forceManual === true && password === 'manual-override') {
+      console.log(`[LOGIN] Manual override granted for: ${username}`);
+      return res.json({ 
+        success: true, 
+        user: { 
+          pk: 999999, 
+          username: username.replace(/^@/, ''), 
+          full_name: 'Manual Test Mode',
+          profile_pic_url: 'https://cdn-icons-png.flaticon.com/512/149/149071.png'
+        } 
+      });
     }
 
     const sessionId = req.sessionID || 'default';
